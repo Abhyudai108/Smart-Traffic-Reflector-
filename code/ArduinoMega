@@ -1,0 +1,177 @@
+#include <TM1637Display.h>
+
+// Define LED pins for each direction
+const uint8_t redPinNorth = 52;
+const uint8_t yellowPinNorth = 50;
+const uint8_t greenPinNorth = 48;
+
+const uint8_t redPinSouth = 53;
+const uint8_t yellowPinSouth = 51;
+const uint8_t greenPinSouth = 49;
+
+const uint8_t redPinEast = 42;
+const uint8_t yellowPinEast = 40;
+const uint8_t greenPinEast = 38;
+
+// Define IR sensor pins for each direction
+const uint8_t irSensorNorth1 = 34;
+const uint8_t irSensorNorth2 = 35;
+const uint8_t irSensorNorth3 = 36;
+
+const uint8_t irSensorSouth1 = 30;
+const uint8_t irSensorSouth2 = 31;
+const uint8_t irSensorSouth3 = 32;
+
+const uint8_t irSensorEast1 = 26;
+const uint8_t irSensorEast2 = 27;
+const uint8_t irSensorEast3 = 28;
+
+// Define TM1637 display pins and instance for each direction
+#define CLK_PIN_NORTH   2
+#define DIO_PIN_NORTH   22
+TM1637Display displayNorth(CLK_PIN_NORTH, DIO_PIN_NORTH);
+
+#define CLK_PIN_SOUTH   3
+#define DIO_PIN_SOUTH   25
+TM1637Display displaySouth(CLK_PIN_SOUTH, DIO_PIN_SOUTH);
+
+#define CLK_PIN_EAST   4
+#define DIO_PIN_EAST   29
+TM1637Display displayEast(CLK_PIN_EAST, DIO_PIN_EAST);
+
+// Define timing constants
+const unsigned long greenTime = 15;  // 15 seconds for green signal
+const unsigned long yellowTime = 3;   // 3 seconds for yellow signal
+const unsigned long redTime = 10;     // 10 seconds for red signal
+
+// Define variables for timer
+unsigned long timerDuration = 0;
+unsigned long timerStart = 0;
+
+void setup() {
+  Serial.begin(9600);
+
+  // Set LED pins as OUTPUT
+  pinMode(redPinNorth, OUTPUT);
+  pinMode(yellowPinNorth, OUTPUT);
+  pinMode(greenPinNorth, OUTPUT);
+
+  pinMode(redPinSouth, OUTPUT);
+  pinMode(yellowPinSouth, OUTPUT);
+  pinMode(greenPinSouth, OUTPUT);
+
+  pinMode(redPinEast, OUTPUT);
+  pinMode(yellowPinEast, OUTPUT);
+  pinMode(greenPinEast, OUTPUT);
+
+  // Set IR sensor pins as INPUT_PULLUP
+  pinMode(irSensorNorth1, INPUT_PULLUP);
+  pinMode(irSensorNorth2, INPUT_PULLUP);
+  pinMode(irSensorNorth3, INPUT_PULLUP);
+
+  pinMode(irSensorSouth1, INPUT_PULLUP);
+  pinMode(irSensorSouth2, INPUT_PULLUP);
+  pinMode(irSensorSouth3, INPUT_PULLUP);
+
+  pinMode(irSensorEast1, INPUT_PULLUP);
+  pinMode(irSensorEast2, INPUT_PULLUP);
+  pinMode(irSensorEast3, INPUT_PULLUP);
+
+  // Set display brightness to maximum
+  displayNorth.setBrightness(0x0f);
+  displaySouth.setBrightness(0x0f);
+  displayEast.setBrightness(0x0f);
+}
+
+void loop() {
+  // Check for obstacles in each direction and manage traffic accordingly
+  bool northSignal = detectObstacle(irSensorNorth1, irSensorNorth2, irSensorNorth3);
+  bool southSignal = detectObstacle(irSensorSouth1, irSensorSouth2, irSensorSouth3);
+  bool eastSignal = detectObstacle(irSensorEast1, irSensorEast2, irSensorEast3);
+
+  // Start timer based on detected signals
+  if (northSignal) {
+    startTimer(greenTime);
+    manageTraffic(greenPinNorth, yellowPinNorth, redPinNorth, displayNorth);
+    turnRed(greenPinNorth);
+  } else if (southSignal) {
+    startTimer(yellowTime);
+    manageTraffic(greenPinSouth, yellowPinSouth, redPinSouth, displaySouth);
+    turnRed(greenPinSouth);
+  } else if (eastSignal) {
+    startTimer(redTime);
+    manageTraffic(greenPinEast, yellowPinEast, redPinEast, displayEast);
+    turnRed(greenPinEast);
+  } else {
+    // If no signal is detected, turn all signals to yellow
+    allYellow();
+  }
+
+  // Check if timer has elapsed
+  if (timerDuration > 0 && millis() - timerStart >= timerDuration * 1000) {
+    timerDuration = 0; // Reset timer
+  }
+}
+
+bool detectObstacle(uint8_t sensor1, uint8_t sensor2, uint8_t sensor3) {
+  return (digitalRead(sensor1) == LOW || digitalRead(sensor2) == LOW || digitalRead(sensor3) == LOW);
+}
+
+void startTimer(unsigned long duration) {
+  if (timerDuration == 0) {
+    // Start timer only if no other timer is active
+    timerDuration = duration;
+    timerStart = millis();
+  }
+}
+
+void manageTraffic(uint8_t greenPin, uint8_t yellowPin, uint8_t redPin, TM1637Display &display) {
+  // Activate green signal
+  signalControl(greenPin, yellowPin, redPin, timerDuration, display);
+}
+
+void turnRed(uint8_t exceptPin) {
+  // Turn all signals to red except the specified pin
+  digitalWrite(redPinNorth, redPinNorth == exceptPin ? LOW : HIGH);
+  digitalWrite(redPinSouth, redPinSouth == exceptPin ? LOW : HIGH);
+  digitalWrite(redPinEast, redPinEast == exceptPin ? LOW : HIGH);
+}
+
+void allYellow() {
+  // Turn all signals to yellow
+  digitalWrite(yellowPinNorth, HIGH);
+  digitalWrite(yellowPinSouth, HIGH);
+  digitalWrite(yellowPinEast, HIGH);
+  delay(yellowTime * 1000); // Wait for yellow time
+  digitalWrite(yellowPinNorth, LOW);
+  digitalWrite(yellowPinSouth, LOW);
+  digitalWrite(yellowPinEast, LOW);
+}
+
+void signalControl(uint8_t greenPin, uint8_t yellowPin, uint8_t redPin, unsigned long duration, TM1637Display &display) {
+  digitalWrite(redPin, LOW);
+  digitalWrite(yellowPin, LOW);
+  digitalWrite(greenPin, HIGH);
+  display.showNumberDec(duration); // Display remaining signal time
+  countDown(duration, display);
+
+  // Yellow signal
+  digitalWrite(greenPin, LOW);
+  digitalWrite(yellowPin, HIGH);
+  display.showNumberDec(yellowTime); // Display remaining signal time
+  countDown(yellowTime, display);
+}
+
+void countDown(unsigned long duration, TM1637Display &display) {
+  unsigned long startTime = millis();
+
+  while (millis() - startTime < duration * 1000) {
+    // Calculate remaining time
+    unsigned long remainingTime = (duration - (millis() - startTime) / 1000);
+    display.showNumberDec(remainingTime); // Update TM1637 display with remaining time
+    Serial.println(remainingTime); // Print remaining time to serial monitor
+
+    // Add a delay of 1 second for smoother countdown
+    delay(1000);
+  }
+}
